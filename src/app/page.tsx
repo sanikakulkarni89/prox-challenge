@@ -842,7 +842,7 @@ export default function Home() {
                 value={isListening ? voiceInterim : input}
                 onChange={isListening ? undefined : (e) => setInput(e.target.value)}
                 onKeyDown={isListening ? undefined : handleKeyDown}
-                placeholder={isListening ? "Listening…" : "Ask about setup, settings, troubleshooting…"}
+                placeholder={isListening ? "Speak now — click the mic again when done…" : "Ask about setup, settings, troubleshooting…"}
                 rows={1}
                 disabled={isLoading}
                 readOnly={isListening}
@@ -875,7 +875,7 @@ export default function Home() {
 
             <p className="text-zinc-700 text-xs mt-2 text-center">
               {isListening
-                ? "Speak your question — I'll send it automatically"
+                ? "Recording… click the mic button again to stop and send"
                 : "Enter to send · Shift+Enter for new line · 🎙 mic to speak your question"}
             </p>
           </div>
