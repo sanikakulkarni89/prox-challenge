@@ -115,75 +115,60 @@ function speak(text: string) {
   window.speechSynthesis.speak(utt);
 }
 
-interface ISpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-  onresult: ((e: ISpeechRecognitionEvent) => void) | null;
-  start(): void;
-  stop(): void;
-}
-interface ISpeechRecognitionResult {
-  readonly isFinal: boolean;
-  readonly length: number;
-  [index: number]: { readonly transcript: string };
-}
-interface ISpeechRecognitionEvent {
-  readonly results: { readonly length: number; [index: number]: ISpeechRecognitionResult };
-}
-type SpeechRecognitionCtor = new () => ISpeechRecognition;
-
 function useVoiceInput(
   onFinal: (text: string) => void,
   onInterim: (text: string) => void
 ) {
   const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  const start = useCallback(() => {
-    const w = window as Window & {
-      SpeechRecognition?: SpeechRecognitionCtor;
-      webkitSpeechRecognition?: SpeechRecognitionCtor;
-    };
-    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if (!SR) {
-      alert("Voice input requires Chrome, Edge, or Safari.");
+  const start = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("Microphone access is not supported in this browser.");
       return;
     }
-    const rec = new SR();
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.lang = "en-US";
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
 
-    rec.onstart = () => setIsListening(true);
-    rec.onend = () => {
-      setIsListening(false);
-      onInterim("");
-    };
-    rec.onerror = () => {
-      setIsListening(false);
-      onInterim("");
-    };
-    rec.onresult = (e: ISpeechRecognitionEvent) => {
-      const result = e.results[e.results.length - 1];
-      const text = result[0].transcript;
-      if (result.isFinal) {
-        onFinal(text.trim());
-        onInterim("");
-      } else {
-        onInterim(text);
-      }
-    };
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
 
-    recognitionRef.current = rec;
-    rec.start();
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+
+        onInterim("Transcribing…");
+        try {
+          const form = new FormData();
+          form.append("audio", blob, "recording.webm");
+          const res = await fetch("/api/transcribe", { method: "POST", body: form });
+          const { transcript, error } = await res.json();
+          onInterim("");
+          if (error) return;
+          if (transcript?.trim()) onFinal(transcript.trim());
+        } catch {
+          onInterim("");
+        }
+      };
+
+      mediaRecorder.start();
+      setIsListening(true);
+    } catch {
+      alert("Microphone access denied. Please allow microphone permissions and try again.");
+    }
   }, [onFinal, onInterim]);
 
   const stop = useCallback(() => {
-    recognitionRef.current?.stop();
+    mediaRecorderRef.current?.stop();
+    setIsListening(false);
   }, []);
 
   const toggle = useCallback(() => {
