@@ -1,6 +1,117 @@
-# Prox Founding Engineer Challenge
+# OmniPro 220 Expert Assistant
+
+> A multimodal reasoning agent for the Vulcan OmniPro 220 multiprocess welding system — built for the Prox founding engineer challenge.
 
 <img src="product.webp" alt="Vulcan OmniPro 220" width="400" /> <img src="product-inside.webp" alt="Vulcan OmniPro 220 — inside panel" width="400" />
+
+---
+
+## Running It
+
+```bash
+git clone <this-repo>
+cd <this-repo>
+cp .env.example .env        # add your Anthropic API key
+npm install
+npm run dev                 # open http://localhost:3000
+```
+
+That's it. Node 18+ required.
+
+---
+
+## What It Does
+
+The agent answers deep technical questions about the Vulcan OmniPro 220 and **generates visual responses, not just text**.
+
+| Ask about… | Agent generates… |
+|---|---|
+| Wiring / polarity / cable setup | SVG wiring diagram with colored cables and labeled sockets |
+| Duty cycle at a given amperage | Interactive calculator — weld time vs. rest time |
+| Settings for a process/material/thickness | Styled parameter table with highlighted recommendations |
+| Troubleshooting a weld problem | Step-by-step diagnostic flowchart |
+| Weld bead diagnosis | Visual guide comparing bead profiles |
+| Process selection (MIG vs Flux vs TIG) | Comparison table with trade-offs |
+
+You can also upload a photo of your weld and get a diagnosis.
+
+---
+
+## Architecture
+
+### Knowledge extraction
+
+The 48-page owner's manual, quick-start guide, and process selection chart were read as images (rendered at 150 DPI with poppler). Every specification, table, diagram, and procedure was manually extracted and encoded into a structured knowledge base in `src/lib/knowledge.ts`.
+
+Key sections:
+- Complete specs for all 4 processes × 2 voltages (duty cycles, current ranges, OCV)
+- Full polarity setup for MIG/DCEP, Flux-Cored/DCEN, TIG/DCEP, and Stick/DCEP
+- Wire feed mechanism setup, feed roller sizes, tension calibration
+- Shielding gas selection by process and material
+- LCD settings procedure step-by-step
+- Weld diagnosis for 8 wire weld defects and 5 stick defects
+- Complete troubleshooting tables
+- Welding technique (CTWD, push/drag angle, TIG rod technique)
+
+The knowledge is baked into the system prompt with prompt caching (`cache_control: ephemeral`) so every request after the first hits the cache. The system prompt is ~3,500 tokens; with caching enabled the per-request cost drops significantly.
+
+### Agent loop
+
+```
+User message (text + optional image)
+    ↓
+claude-opus-4-7 with system prompt + create_artifact tool
+    ↓ stream
+Text tokens → streamed to frontend in real time
+Tool call (create_artifact) → HTML extracted, streamed as SSE artifact event
+    ↓
+Tool result sent back → agent continues streaming explanation text
+    ↓
+Done event → streaming cursor removed
+```
+
+The `create_artifact` tool is the core mechanism. The agent is instructed (via the system prompt) that calling this tool is **mandatory** when the question involves anything visual. The tool takes:
+- `title` — short label shown in the artifact card
+- `artifact_type` — one of: `wiring_diagram`, `duty_cycle_chart`, `settings_matrix`, `troubleshooting_flowchart`, `comparison_table`, `calculator`, `diagnosis_guide`, `how_to_guide`
+- `html` — a complete, self-contained HTML document
+
+The HTML is rendered in a sandboxed `<iframe srcDoc>` in the right panel. This is the same approach used by Claude.ai's artifact system.
+
+### Design decisions
+
+**Why bake knowledge into the system prompt rather than use RAG?**
+At 48 pages and 3,500 tokens of structured knowledge, the whole manual fits comfortably in context. RAG adds retrieval latency, chunking complexity, and retrieval failures. For a single-product assistant, a rich system prompt wins on simplicity, accuracy, and latency. Prompt caching makes the cost negligible.
+
+**Why claude-opus-4-7?**
+The hardest part of this challenge is generating correct, beautiful, self-contained HTML artifacts on the first try. Opus consistently produces complete, well-styled, interactive HTML while Sonnet occasionally truncates or produces incomplete documents.
+
+**Why streaming with tool use?**
+Text starts appearing immediately while the artifact is being generated in parallel. Users see the response forming in real time rather than waiting for the full round-trip. The SSE protocol makes it easy to multiplex text tokens and artifact events on the same connection.
+
+**Artifact rendering as sandboxed iframe:**
+`sandbox="allow-scripts allow-same-origin"` gives artifacts full interactivity (sliders, click handlers, animations) while blocking navigation, form submission, and top-level access. This matches how Claude.ai renders its artifacts.
+
+---
+
+## Project Structure
+
+```
+src/
+  app/
+    page.tsx           — full chat UI (streaming, image upload, artifact panel)
+    globals.css        — dark theme, animations, markdown styles
+    layout.tsx         — page metadata
+    api/
+      chat/
+        route.ts       — streaming API: agent loop, tool use, SSE
+  lib/
+    knowledge.ts       — complete Vulcan OmniPro 220 knowledge base + system prompt
+    tools.ts           — create_artifact tool definition
+```
+
+---
+
+## Original Challenge
 
 ## The Product
 
