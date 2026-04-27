@@ -115,17 +115,40 @@ function speak(text: string) {
   window.speechSynthesis.speak(utt);
 }
 
+interface ISpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  onresult: ((e: ISpeechRecognitionEvent) => void) | null;
+  start(): void;
+  stop(): void;
+}
+interface ISpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  [index: number]: { readonly transcript: string };
+}
+interface ISpeechRecognitionEvent {
+  readonly results: { readonly length: number; [index: number]: ISpeechRecognitionResult };
+}
+type SpeechRecognitionCtor = new () => ISpeechRecognition;
+
 function useVoiceInput(
   onFinal: (text: string) => void,
   onInterim: (text: string) => void
 ) {
   const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<ISpeechRecognition | null>(null);
 
   const start = useCallback(() => {
-    const SR =
-      (window as Window & { webkitSpeechRecognition?: typeof SpeechRecognition })
-        .webkitSpeechRecognition ?? window.SpeechRecognition;
+    const w = window as Window & {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!SR) {
       alert("Voice input requires Chrome, Edge, or Safari.");
       return;
@@ -144,7 +167,7 @@ function useVoiceInput(
       setIsListening(false);
       onInterim("");
     };
-    rec.onresult = (e: SpeechRecognitionEvent) => {
+    rec.onresult = (e: ISpeechRecognitionEvent) => {
       const result = e.results[e.results.length - 1];
       const text = result[0].transcript;
       if (result.isFinal) {
@@ -462,6 +485,7 @@ export default function Home() {
   const [pendingImage, setPendingImage] = useState<ImageAttachment | null>(null);
   const [mobileTab, setMobileTab] = useState<"chat" | "diagram">("chat");
   const [hasNewArtifact, setHasNewArtifact] = useState(false);
+  const [voiceInterim, setVoiceInterim] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -652,6 +676,11 @@ export default function Home() {
     [isLoading, messages]
   );
 
+  const { isListening, toggle: toggleVoice } = useVoiceInput(
+    useCallback((text: string) => { sendMessage(text); }, [sendMessage]),
+    useCallback((interim: string) => { setVoiceInterim(interim); }, [])
+  );
+
   const handleSubmit = useCallback(
     (e: FormEvent) => {
       e.preventDefault();
@@ -779,7 +808,8 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex-shrink-0 w-9 h-9 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-zinc-200 transition-colors"
+                disabled={isListening}
+                className="flex-shrink-0 w-9 h-9 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 flex items-center justify-center text-zinc-400 hover:text-zinc-200 transition-colors"
                 title="Attach weld photo"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -794,22 +824,54 @@ export default function Home() {
                 onChange={handleImageUpload}
               />
 
+              {/* Voice input button */}
+              <button
+                type="button"
+                onClick={toggleVoice}
+                disabled={isLoading}
+                className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center transition-all disabled:opacity-40 ${
+                  isListening
+                    ? "bg-red-500 hover:bg-red-400 text-white mic-recording"
+                    : "bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-orange-400"
+                }`}
+                title={isListening ? "Stop recording" : "Voice input"}
+              >
+                {isListening ? (
+                  /* Animated waveform bars */
+                  <div className="flex items-center gap-[2px]">
+                    <div className="wave-bar-1 w-[3px] h-4 bg-white rounded-full origin-bottom" />
+                    <div className="wave-bar-2 w-[3px] h-4 bg-white rounded-full origin-bottom" />
+                    <div className="wave-bar-3 w-[3px] h-4 bg-white rounded-full origin-bottom" />
+                    <div className="wave-bar-4 w-[3px] h-4 bg-white rounded-full origin-bottom" />
+                  </div>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                  </svg>
+                )}
+              </button>
+
               {/* Textarea */}
               <textarea
                 ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask about setup, settings, troubleshooting…"
+                value={isListening ? voiceInterim : input}
+                onChange={isListening ? undefined : (e) => setInput(e.target.value)}
+                onKeyDown={isListening ? undefined : handleKeyDown}
+                placeholder={isListening ? "Listening…" : "Ask about setup, settings, troubleshooting…"}
                 rows={1}
                 disabled={isLoading}
-                className="flex-1 resize-none bg-zinc-900 border border-zinc-700 hover:border-zinc-600 focus:border-orange-500/50 rounded-xl px-4 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors min-h-[40px] max-h-[160px] disabled:opacity-50"
+                readOnly={isListening}
+                className={`flex-1 resize-none bg-zinc-900 border rounded-xl px-4 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors min-h-[40px] max-h-[160px] disabled:opacity-50 ${
+                  isListening
+                    ? "border-red-500/50 placeholder-red-400/60 cursor-not-allowed"
+                    : "border-zinc-700 hover:border-zinc-600 focus:border-orange-500/50"
+                }`}
               />
 
               {/* Send button */}
               <button
                 type="submit"
-                disabled={(!input.trim() && !pendingImage) || isLoading}
+                disabled={(!input.trim() && !pendingImage) || isLoading || isListening}
                 className="flex-shrink-0 w-9 h-9 rounded-lg bg-orange-500 hover:bg-orange-400 disabled:bg-zinc-800 disabled:text-zinc-600 flex items-center justify-center text-white transition-colors"
                 title="Send (Enter)"
               >
@@ -827,7 +889,9 @@ export default function Home() {
             </form>
 
             <p className="text-zinc-700 text-xs mt-2 text-center">
-              Enter to send · Shift+Enter for new line · Attach a weld photo for diagnosis
+              {isListening
+                ? "Speak your question — I'll send it automatically"
+                : "Enter to send · Shift+Enter for new line · 🎙 mic to speak your question"}
             </p>
           </div>
         </div>
