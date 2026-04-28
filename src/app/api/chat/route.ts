@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { SYSTEM_PROMPT } from "@/lib/knowledge";
 import { TOOLS } from "@/lib/tools";
 import { saveDiagnosis, saveSession } from "@/lib/weldMemory";
+import type { WiringDiagram, DiagramPatch } from "@/store/diagramStore";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -13,6 +14,8 @@ const client = new Anthropic({
 type SSEEvent =
   | { type: "text"; text: string }
   | { type: "artifact"; title: string; artifact_type: string; html: string }
+  | { type: "wiring_diagram"; diagram: WiringDiagram }
+  | { type: "diagram_patch"; patch: DiagramPatch }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -169,6 +172,7 @@ async function runAgentLoop(
       id: string;
       name: string;
       input: Record<string, string>;
+      diagramId?: string;
     }> = [];
     let currentToolId = "";
     let currentToolName = "";
@@ -208,22 +212,47 @@ async function runAgentLoop(
         case "content_block_stop":
           if (currentToolJson && currentToolId) {
             try {
-              const parsed = JSON.parse(currentToolJson) as Record<
-                string,
-                string
-              >;
+              const parsed = JSON.parse(currentToolJson) as Record<string, unknown>;
               artifacts.push({
                 id: currentToolId,
                 name: currentToolName,
-                input: parsed,
+                input: parsed as Record<string, string>,
               });
-              // Stream artifact to frontend immediately
-              send({
-                type: "artifact",
-                title: parsed.title ?? "Diagram",
-                artifact_type: parsed.artifact_type ?? "how_to_guide",
-                html: parsed.html ?? "",
-              });
+
+              if (currentToolName === "render_wiring_diagram") {
+                const diagramId = crypto.randomUUID();
+                const diagram: WiringDiagram = {
+                  id: diagramId,
+                  title: (parsed.title as string) ?? "Wiring Diagram",
+                  polarity: parsed.polarity as WiringDiagram["polarity"],
+                  nodes: (parsed.nodes as WiringDiagram["nodes"]) ?? [],
+                  edges: (parsed.edges as WiringDiagram["edges"]) ?? [],
+                };
+                artifacts[artifacts.length - 1].diagramId = diagramId;
+                send({ type: "wiring_diagram", diagram });
+              } else if (currentToolName === "update_wiring_diagram") {
+                const diagramId = parsed.diagram_id as string;
+                const addNodes = (parsed.add_nodes as WiringDiagram["nodes"]) ?? [];
+                const removeNodeIds = (parsed.remove_node_ids as string[]) ?? [];
+                const updateEdges = (parsed.update_edges as DiagramPatch["updateEdges"]) ?? [];
+                const moveNodes = (parsed.move_nodes as DiagramPatch["moveNodes"]) ?? [];
+                const patch: DiagramPatch = {
+                  diagramId,
+                  addNodes,
+                  removeNodeIds,
+                  updateEdges,
+                  moveNodes,
+                };
+                artifacts[artifacts.length - 1].diagramId = diagramId;
+                send({ type: "diagram_patch", patch });
+              } else {
+                send({
+                  type: "artifact",
+                  title: (parsed.title as string) ?? "Diagram",
+                  artifact_type: (parsed.artifact_type as string) ?? "how_to_guide",
+                  html: (parsed.html as string) ?? "",
+                });
+              }
             } catch {
               // Ignore malformed tool input
             }
@@ -245,12 +274,53 @@ async function runAgentLoop(
 
     // Provide tool results and continue
     const toolResults: Anthropic.ToolResultBlockParam[] = artifacts.map(
-      (artifact) => ({
-        type: "tool_result",
-        tool_use_id: artifact.id,
-        content:
-          "Artifact rendered and displayed to user in the side panel. Continue with your explanation.",
-      })
+      (artifact) => {
+        if (artifact.name === "render_wiring_diagram" && artifact.diagramId) {
+          const input = artifact.input as unknown as {
+            nodes?: unknown[];
+            edges?: unknown[];
+          };
+          return {
+            type: "tool_result" as const,
+            tool_use_id: artifact.id,
+            content: JSON.stringify({
+              status: "rendered",
+              diagram_id: artifact.diagramId,
+              node_count: input.nodes?.length ?? 0,
+              edge_count: input.edges?.length ?? 0,
+              message: `Diagram is visible to the user. Use diagram_id "${artifact.diagramId}" with update_wiring_diagram for any corrections or refinements. Do not call render_wiring_diagram again for this setup.`,
+            }),
+          };
+        }
+        if (artifact.name === "update_wiring_diagram" && artifact.diagramId) {
+          const input = artifact.input as unknown as {
+            add_nodes?: unknown[];
+            remove_node_ids?: unknown[];
+            move_nodes?: unknown[];
+            update_edges?: unknown[];
+          };
+          return {
+            type: "tool_result" as const,
+            tool_use_id: artifact.id,
+            content: JSON.stringify({
+              status: "updated",
+              diagram_id: artifact.diagramId,
+              changes_applied: {
+                added: input.add_nodes?.length ?? 0,
+                removed: input.remove_node_ids?.length ?? 0,
+                moved: input.move_nodes?.length ?? 0,
+                edge_patches: input.update_edges?.length ?? 0,
+              },
+              message: `Changes animated and visible. Continue using diagram_id "${artifact.diagramId}" for further refinements.`,
+            }),
+          };
+        }
+        return {
+          type: "tool_result" as const,
+          tool_use_id: artifact.id,
+          content: "Artifact rendered and displayed to user in the side panel. Continue with your explanation.",
+        };
+      }
     );
 
     messages = [

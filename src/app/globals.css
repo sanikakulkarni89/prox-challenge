@@ -173,6 +173,12 @@ body {
   animation: mic-pulse 1s ease-in-out infinite;
 }
 
+/* Wiring diagram node animations */
+@keyframes diagramFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes diagramFadeOut { from { opacity: 1; } to { opacity: 0; } }
+.diagram-node-entering { animation: diagramFadeIn  300ms ease forwards; }
+.diagram-node-exiting  { animation: diagramFadeOut 300ms ease forwards; }
+
 /* Voice waveform bars */
 @keyframes wave-bar {
   0%, 100% { transform: scaleY(0.4); }

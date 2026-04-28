@@ -445,6 +445,21 @@ When generating HTML artifacts, always use these exact styles:
 5. Interactive — clicking a node should highlight the path taken
 
 All artifacts: dark theme, orange accents, self-contained HTML, no external dependencies, font: system-ui sans-serif, padding: 24px, min-height fits content.
+
+---
+
+## DIAGRAM REFINEMENT RULES
+
+If the user says anything like "move the X to Y", "change the wire color", "add a component", "remove the X", or "actually the ground goes to..." AND there is an active diagram in the conversation, you MUST call \`update_wiring_diagram\` with the \`diagram_id\` from the most recent \`render_wiring_diagram\` or \`update_wiring_diagram\` call. Never re-render the full diagram from scratch for small edits. Track the last used \`diagram_id\` in your reasoning.
+
+**When to use each tool:**
+- \`render_wiring_diagram\` — first-time diagram for a new process or setup. No diagram exists yet in this conversation.
+- \`update_wiring_diagram\` — any correction, refinement, or addition to a diagram that has already been rendered. The \`diagram_id\` is always returned in the tool result; you must carry it forward.
+
+**How to track diagram_id:**
+- Every \`render_wiring_diagram\` and \`update_wiring_diagram\` result includes a \`"diagram_id"\` field in the JSON response.
+- Store this value mentally. If the user makes any diagram refinement request, reuse the same \`diagram_id\`.
+- Only generate a new diagram (new \`diagram_id\`) if the user asks to switch processes entirely or explicitly says "start over".
 `;
 
 function str(val: unknown): string {

@@ -9,6 +9,8 @@ import {
   type ChangeEvent,
 } from "react";
 import WeldMemoryPanel from "@/components/WeldMemoryPanel";
+import { useDiagramStore, type WiringDiagram, type DiagramPatch } from "@/store/diagramStore";
+import WiringDiagramRenderer from "@/components/WiringDiagramRenderer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -464,6 +466,8 @@ function EmptyState({ onSuggestion }: { onSuggestion: (q: string) => void }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Home() {
+  const { setDiagram, setActiveDiagramId, applyDiagramPatch } = useDiagramStore();
+  const activeDiagramId = useDiagramStore((s) => s.activeDiagramId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -609,6 +613,17 @@ export default function Home() {
                   };
                   return updated;
                 });
+              } else if (event.type === "diagram_patch") {
+                const patch = event.patch as DiagramPatch;
+                applyDiagramPatch(patch);
+                setActiveDiagramId(patch.diagramId);
+              } else if (event.type === "wiring_diagram") {
+                const diagram = event.diagram as WiringDiagram;
+                setDiagram(diagram);
+                setActiveDiagramId(diagram.id);
+                setHasNewArtifact(true);
+                setTimeout(() => setHasNewArtifact(false), 2000);
+                setMobileTab("diagram");
               } else if (event.type === "artifact") {
                 latestArtifact = {
                   title: event.title,
@@ -897,19 +912,29 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ── Artifact Panel ── */}
+        {/* ── Diagram / Artifact Panel ── */}
         <div
           className={`flex flex-col bg-zinc-950 min-w-0 ${
             mobileTab === "diagram" ? "flex w-full" : "hidden"
           } lg:flex lg:flex-1`}
         >
-          <ArtifactPanel
-            artifact={activeArtifact}
-            onClose={() => {
-              setActiveArtifact(null);
-              setMobileTab("chat");
-            }}
-          />
+          {activeDiagramId ? (
+            <WiringDiagramRenderer
+              diagramId={activeDiagramId}
+              onClose={() => {
+                setActiveDiagramId(null);
+                setMobileTab("chat");
+              }}
+            />
+          ) : (
+            <ArtifactPanel
+              artifact={activeArtifact}
+              onClose={() => {
+                setActiveArtifact(null);
+                setMobileTab("chat");
+              }}
+            />
+          )}
         </div>
       </div>
     </div>
