@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { SYSTEM_PROMPT } from "@/lib/knowledge";
 import { TOOLS } from "@/lib/tools";
+import { saveDiagnosis, saveSession } from "@/lib/weldMemory";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -15,9 +16,94 @@ type SSEEvent =
   | { type: "done" }
   | { type: "error"; message: string };
 
+const DEFECT_KEYWORDS = [
+  "porosity",
+  "undercut",
+  "cold lap",
+  "spatter",
+  "burn through",
+  "incomplete fusion",
+] as const;
+
+type DefectKeyword = (typeof DEFECT_KEYWORDS)[number];
+
+function detectDefect(text: string): DefectKeyword | null {
+  const lower = text.toLowerCase();
+  for (const kw of DEFECT_KEYWORDS) {
+    if (lower.includes(kw)) return kw;
+  }
+  return null;
+}
+
+function extractAssistantText(content: Anthropic.ContentBlock[]): string {
+  return content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+}
+
+function findImageUrl(
+  messages: Anthropic.MessageParam[]
+): string | undefined {
+  for (const msg of messages) {
+    if (msg.role !== "user") continue;
+    const blocks = Array.isArray(msg.content) ? msg.content : [];
+    for (const block of blocks) {
+      if (block.type === "image") {
+        // Cast needed: SDK types only define base64, but runtime may carry url
+        const src = block.source as { type: string; url?: string };
+        if (src.type === "url" && src.url) return src.url;
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractParameters(text: string): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+
+  const voltageMatch = text.match(/\b(\d+(?:\.\d+)?)\s*V(?:olts?)?\b/i);
+  if (voltageMatch) params.voltage = parseFloat(voltageMatch[1]);
+
+  const ampsMatch = text.match(/\b(\d+(?:\.\d+)?)\s*A(?:mps?)?\b/i);
+  if (ampsMatch) params.amperage = parseFloat(ampsMatch[1]);
+
+  const wfsMatch = text.match(/\b(\d+(?:\.\d+)?)\s*IPM\b/i);
+  if (wfsMatch) params.wire_speed = parseFloat(wfsMatch[1]);
+
+  const actionSentence = text
+    .split(/[.!?]+/)
+    .find((s) =>
+      /\b(increase|decrease|reduce|adjust|check|clean|replace|swap|verify|ensure|lower|raise)\b/i.test(
+        s
+      )
+    );
+  if (actionSentence) params.corrective_action = actionSentence.trim();
+
+  return params;
+}
+
+async function maybeSaveDiagnosis(
+  finalContent: Anthropic.ContentBlock[],
+  initialMessages: Anthropic.MessageParam[],
+  userId: string
+): Promise<void> {
+  const text = extractAssistantText(finalContent);
+  const defectType = detectDefect(text);
+  if (!defectType) return;
+
+  const session = await saveSession({ userId, machineConfig: {} });
+  await saveDiagnosis({
+    sessionId: session.id,
+    imageUrl: findImageUrl(initialMessages),
+    defectType,
+    parameters: extractParameters(text),
+  });
+}
+
 export async function POST(req: Request) {
   try {
-    const { messages } = await req.json();
+    const { messages, userId } = await req.json();
 
     const encoder = new TextEncoder();
 
@@ -30,7 +116,7 @@ export async function POST(req: Request) {
         };
 
         try {
-          await runAgentLoop(messages, send);
+          await runAgentLoop(messages, send, userId as string | undefined);
           send({ type: "done" });
         } catch (err) {
           console.error("Agent loop error:", err);
@@ -63,7 +149,8 @@ export async function POST(req: Request) {
 
 async function runAgentLoop(
   initialMessages: Anthropic.MessageParam[],
-  send: (event: SSEEvent) => void
+  send: (event: SSEEvent) => void,
+  userId?: string
 ) {
   const systemBlock: Anthropic.TextBlockParam & {
     cache_control?: { type: "ephemeral" };
@@ -74,6 +161,7 @@ async function runAgentLoop(
   };
 
   let messages: Anthropic.MessageParam[] = [...initialMessages];
+  let lastFinalContent: Anthropic.ContentBlock[] = [];
 
   // Max 3 iterations to prevent runaway loops
   for (let iteration = 0; iteration < 3; iteration++) {
@@ -148,6 +236,7 @@ async function runAgentLoop(
     }
 
     const finalMessage = await messageStream.finalMessage();
+    lastFinalContent = finalMessage.content;
 
     // If no tool calls, we're done
     if (finalMessage.stop_reason !== "tool_use" || artifacts.length === 0) {
@@ -169,5 +258,12 @@ async function runAgentLoop(
       { role: "assistant", content: finalMessage.content },
       { role: "user", content: toolResults },
     ];
+  }
+
+  // Non-blocking: persist weld diagnosis if the response contains one
+  if (userId) {
+    void maybeSaveDiagnosis(lastFinalContent, initialMessages, userId).catch(
+      (err) => console.error("Failed to save weld diagnosis:", err)
+    );
   }
 }

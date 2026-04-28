@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type ChangeEvent,
 } from "react";
+import WeldMemoryPanel from "@/components/WeldMemoryPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -471,11 +472,22 @@ export default function Home() {
   const [mobileTab, setMobileTab] = useState<"chat" | "diagram">("chat");
   const [hasNewArtifact, setHasNewArtifact] = useState(false);
   const [voiceInterim, setVoiceInterim] = useState("");
+  const [userId, setUserId] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Stable user ID persisted to localStorage
+  useEffect(() => {
+    let id = localStorage.getItem("weld-user-id");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("weld-user-id", id);
+    }
+    setUserId(id);
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -555,7 +567,7 @@ export default function Home() {
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: toApiMessages(historyMessages) }),
+          body: JSON.stringify({ messages: toApiMessages(historyMessages), userId }),
         });
 
         if (!response.ok || !response.body) {
@@ -688,6 +700,10 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950 overflow-hidden">
+      <WeldMemoryPanel
+        userId={userId}
+        onResumeContext={(msg) => sendMessage(msg)}
+      />
       {/* ── Header ── */}
       <header className="flex-shrink-0 flex items-center justify-between px-4 h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm z-10">
         <div className="flex items-center gap-2.5">
