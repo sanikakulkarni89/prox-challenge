@@ -9,8 +9,10 @@ import {
   type ChangeEvent,
 } from "react";
 import WeldMemoryPanel from "@/components/WeldMemoryPanel";
+import ManualPageViewer from "@/components/ManualPageViewer";
 import { useDiagramStore, type WiringDiagram, type DiagramPatch } from "@/store/diagramStore";
 import WiringDiagramRenderer from "@/components/WiringDiagramRenderer";
+import type { Citation } from "@/lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +43,7 @@ interface Message {
   role: "user" | "assistant";
   content: string | ContentBlock[];
   artifact?: Artifact;
+  citations?: Citation[];
   streaming?: boolean;
 }
 
@@ -208,12 +211,45 @@ function ArtifactTypeIcon({ type }: { type: string }) {
   return <span>{icons[type] ?? "🔧"}</span>;
 }
 
+function CitationChips({
+  citations,
+  onOpen,
+}: {
+  citations: Citation[];
+  onOpen: (c: Citation, all: Citation[]) => void;
+}) {
+  if (!citations || citations.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1">
+      {citations.map((c, i) => (
+        <button
+          key={i}
+          onClick={() => onOpen(c, citations)}
+          className="inline-flex items-center gap-1.5 text-xs bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 hover:border-orange-500/40 rounded-full px-2.5 py-1 text-zinc-400 hover:text-zinc-200 transition-all group"
+          title={c.excerpt ?? `${c.label} p.${c.page}`}
+        >
+          <svg className="w-3 h-3 text-orange-500/70 group-hover:text-orange-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <span className="text-orange-400/80 group-hover:text-orange-300">{c.label.replace(" Guide", "")}</span>
+          <span className="text-zinc-600">p.{c.page}</span>
+          {c.section && (
+            <span className="text-zinc-500 truncate max-w-[120px]">· {c.section}</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   onArtifactClick,
+  onCitationOpen,
 }: {
   message: Message;
   onArtifactClick: (artifact: Artifact) => void;
+  onCitationOpen: (c: Citation, all: Citation[]) => void;
 }) {
   const text = getMessageText(message.content);
   const isUser = message.role === "user";
@@ -296,6 +332,11 @@ function MessageBubble({
             </svg>
             Read aloud
           </button>
+        )}
+
+        {/* Citation chips */}
+        {!isUser && message.citations && message.citations.length > 0 && (
+          <CitationChips citations={message.citations} onOpen={onCitationOpen} />
         )}
 
         {/* Artifact card */}
@@ -472,6 +513,7 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
+  const [activeCitation, setActiveCitation] = useState<{ citation: Citation; all: Citation[] } | null>(null);
   const [pendingImage, setPendingImage] = useState<ImageAttachment | null>(null);
   const [mobileTab, setMobileTab] = useState<"chat" | "diagram">("chat");
   const [hasNewArtifact, setHasNewArtifact] = useState(false);
@@ -583,6 +625,7 @@ export default function Home() {
         let buffer = "";
         let fullText = "";
         let latestArtifact: Artifact | undefined;
+        let latestCitations: Citation[] = [];
 
         while (true) {
           const { done, value } = await reader.read();
@@ -610,6 +653,17 @@ export default function Home() {
                     ...last,
                     content: fullText,
                     artifact: latestArtifact,
+                    citations: latestCitations.length > 0 ? [...latestCitations] : undefined,
+                  };
+                  return updated;
+                });
+              } else if (event.type === "citations") {
+                latestCitations = [...latestCitations, ...(event.citations as Citation[])];
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = {
+                    ...updated[updated.length - 1],
+                    citations: [...latestCitations],
                   };
                   return updated;
                 });
@@ -660,6 +714,7 @@ export default function Home() {
                   updated[updated.length - 1] = {
                     ...updated[updated.length - 1],
                     streaming: false,
+                    citations: latestCitations.length > 0 ? [...latestCitations] : updated[updated.length - 1].citations,
                   };
                   return updated;
                 });
@@ -719,6 +774,13 @@ export default function Home() {
         userId={userId}
         onResumeContext={(msg) => sendMessage(msg)}
       />
+      {activeCitation && (
+        <ManualPageViewer
+          citation={activeCitation.citation}
+          allCitations={activeCitation.all}
+          onClose={() => setActiveCitation(null)}
+        />
+      )}
       {/* ── Header ── */}
       <header className="flex-shrink-0 flex items-center justify-between px-4 h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm z-10">
         <div className="flex items-center gap-2.5">
@@ -788,6 +850,7 @@ export default function Home() {
                     setActiveArtifact(artifact);
                     setMobileTab("diagram");
                   }}
+                  onCitationOpen={(c, all) => setActiveCitation({ citation: c, all })}
                 />
               ))
             )}

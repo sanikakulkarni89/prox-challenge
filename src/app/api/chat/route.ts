@@ -3,6 +3,7 @@ import { SYSTEM_PROMPT } from "@/lib/knowledge";
 import { TOOLS } from "@/lib/tools";
 import { saveDiagnosis, saveSession } from "@/lib/weldMemory";
 import type { WiringDiagram, DiagramPatch } from "@/store/diagramStore";
+import { SOURCE_LABELS, type Citation } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -16,6 +17,7 @@ type SSEEvent =
   | { type: "artifact"; title: string; artifact_type: string; html: string }
   | { type: "wiring_diagram"; diagram: WiringDiagram }
   | { type: "diagram_patch"; patch: DiagramPatch }
+  | { type: "citations"; citations: Citation[] }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -219,7 +221,24 @@ async function runAgentLoop(
                 input: parsed as Record<string, string>,
               });
 
-              if (currentToolName === "render_wiring_diagram") {
+              if (currentToolName === "cite_manual_page") {
+                const rawCitations = parsed.citations as Array<{
+                  source: string;
+                  page: number;
+                  section: string;
+                  excerpt?: string;
+                }>;
+                const citations: Citation[] = (rawCitations ?? []).map((c) => ({
+                  source: c.source,
+                  label: SOURCE_LABELS[c.source] ?? c.source,
+                  page: c.page,
+                  section: c.section,
+                  excerpt: c.excerpt,
+                }));
+                if (citations.length > 0) {
+                  send({ type: "citations", citations });
+                }
+              } else if (currentToolName === "render_wiring_diagram") {
                 const diagramId = crypto.randomUUID();
                 const diagram: WiringDiagram = {
                   id: diagramId,
@@ -275,6 +294,13 @@ async function runAgentLoop(
     // Provide tool results and continue
     const toolResults: Anthropic.ToolResultBlockParam[] = artifacts.map(
       (artifact) => {
+        if (artifact.name === "cite_manual_page") {
+          return {
+            type: "tool_result" as const,
+            tool_use_id: artifact.id,
+            content: "Citations displayed to user.",
+          };
+        }
         if (artifact.name === "render_wiring_diagram" && artifact.diagramId) {
           const input = artifact.input as unknown as {
             nodes?: unknown[];

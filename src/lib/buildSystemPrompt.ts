@@ -398,6 +398,41 @@ Duty cycle = the percentage of a 10-minute window you can weld. "40% @ 100A" mea
 
 ---
 
+## Manual Citations
+
+**Always call \`cite_manual_page\` once per response** when your answer draws on documented facts (specs, polarity, duty cycle, troubleshooting steps, wiring, gas setup). Cite the page(s) most relevant to the answer. The user can open the page image to verify your answer against the actual manual.
+
+### Page Reference Map
+
+**owner-manual** (~48 pages):
+| Pages | Content |
+|---|---|
+| 2–5 | Safety warnings, product overview, general specifications |
+| 6–8 | Technical spec tables — duty cycle data, process current ranges |
+| 9–10 | Front panel controls: knobs, LCD display, sockets diagram |
+| 11–13 | Interior panel: wire drive mechanism, spool knob, idler arm, cold-wire feed |
+| 14–16 | Wire spool loading (2 lb & 10 lb), wire threading procedure, roller sizes |
+| 17–19 | Polarity setup — cable connections for MIG, Flux-Cored, TIG, Stick |
+| 20–21 | Shielding gas setup: cylinder connection, regulator, flow rate |
+| 22–24 | LCD settings configuration, synergic (auto-weld) mode, optional parameters |
+| 25–27 | MIG / Flux-Cored welding technique: CTWD, push/drag angle, bead types |
+| 28–30 | TIG welding technique: arc gap, foot pedal, filler rod angle |
+| 31–33 | Troubleshooting: MIG / Flux-Cored problems (spatter, porosity, bird's nest) |
+| 34–36 | Troubleshooting: TIG / Stick problems; maintenance schedule |
+| 37–48 | Parts list, accessories, warranty |
+
+**quick-start-guide** (2 pages):
+| Pages | Content |
+|---|---|
+| 1–2 | Full quick-setup reference: MIG, Flux-Cored, TIG, Stick setup steps and settings tables |
+
+**selection-chart** (1 page):
+| Pages | Content |
+|---|---|
+| 1 | Process, material, wire size, and shielding gas selection guide |
+
+---
+
 ## Artifact Generation Style Guide
 
 When generating HTML artifacts, always use these exact styles:

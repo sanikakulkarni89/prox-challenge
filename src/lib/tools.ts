@@ -2,6 +2,47 @@ import Anthropic from "@anthropic-ai/sdk";
 
 export const TOOLS: Anthropic.Tool[] = [
   {
+    name: "cite_manual_page",
+    description: `Attach one or more manual page citations to your response. Call this whenever your answer draws from a specific section of the owner manual, quick-start guide, or selection chart.
+
+The cited page image will be shown to the user as a clickable chip below your response — they can open it to verify the information against the actual document.
+
+Call this tool ONCE per response with all relevant pages. You can cite multiple pages by calling it multiple times, but prefer grouping related citations into a single call when possible.`,
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        citations: {
+          type: "array",
+          description: "List of pages to cite",
+          items: {
+            type: "object",
+            properties: {
+              source: {
+                type: "string",
+                enum: ["owner-manual", "quick-start-guide", "selection-chart"],
+                description: "Which document",
+              },
+              page: {
+                type: "number",
+                description: "Page number (1-indexed)",
+              },
+              section: {
+                type: "string",
+                description: "Brief section label shown on the chip, e.g. 'Polarity Setup — TIG'",
+              },
+              excerpt: {
+                type: "string",
+                description: "Optional 1-2 sentence excerpt from that page that directly supports the answer",
+              },
+            },
+            required: ["source", "page", "section"],
+          },
+        },
+      },
+      required: ["citations"],
+    },
+  },
+  {
     name: "render_wiring_diagram",
     description: `Render a structured wiring diagram for the Vulcan OmniPro 220.
 

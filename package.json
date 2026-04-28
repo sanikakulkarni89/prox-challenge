@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "render-pages": "python3 scripts/render-pages.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.0",
